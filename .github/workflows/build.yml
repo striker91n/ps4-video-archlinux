@@ -101,20 +101,9 @@ jobs:
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
           repo-add ps4-video.db.tar.zst *.pkg.tar.zst
 
-      - name: Commit artifacts
-        shell: bash
-        run: |
-          set -euxo pipefail
-      
-          cd "$GITHUB_WORKSPACE"
-      
-          pwd
-          ls -la
-          ls -la "$GITHUB_WORKSPACE/.git"
-      
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-      
-          git add repo/
-          git commit -m "Update Mesa + drivers $(date +'%Y-%m-%d %H:%M')" || echo "No changes"
-          git push
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-ps4-26.2.5
+          path: repo/*.pkg.tar.zst
+          if-no-files-found: error
