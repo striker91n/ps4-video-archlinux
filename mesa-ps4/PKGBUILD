@@ -11,7 +11,7 @@ pkgver=26.2.5
 pkgrel=1
 arch=('x86_64')
 
-_gallium_drivers="radeonsi,llvmpipe,softpipe,zink"   # radeonsi main + minimal software fallback
+_gallium_drivers="radeonsi"   # radeonsi only (slim: no software/zink fallback)
 _vulkan_drivers="amd"                                # Only RADV
 
 makedepends=(
@@ -193,26 +193,16 @@ case $MESA_WHICH_LLVM in
         optdepends+=('clang-git: opencl' 'compiler-rt: opencl')
         ;;
     4)
-        # extra/llvm
+        # extra/llvm (rusticl/OpenCL disabled to slim build + drop clang dep)
         makedepends+=(
             'llvm'
-            'clang'
-            'libclc'
-            'spirv-llvm-translator'
             'spirv-tools'
-            'rust'
-            'rust-bindgen'
         )
         depends+=(
             'libLLVM.so'
-            'clang'
-            'libclc'
-            'spirv-llvm-translator'
             'spirv-tools'
         )
-        conflicts+=('opencl-rusticl-mesa')
-        provides+=('opencl-rusticl-mesa')
-        _rusticl=true
+        _rusticl=false
         ;;
     *)
 esac
