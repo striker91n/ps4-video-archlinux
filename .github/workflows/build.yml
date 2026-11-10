@@ -64,7 +64,9 @@ jobs:
           fi
           grep -A1 -E '^\[multilib\]' /etc/pacman.conf
           pacman -Syu --noconfirm
-          pacman -Sl multilib | head -3
+          n=$(pacman -Slq multilib | wc -l)
+          echo "multilib packages visible: $n"
+          [ "$n" -gt 0 ] || { echo "::error::multilib repo not enabled"; exit 1; }
 
       - name: Install build tools
         shell: bash
@@ -115,7 +117,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/$REPO_DIR"
           cd "$GITHUB_WORKSPACE/libdrm-ps4"
           sudo -u builder bash -c "cd '$GITHUB_WORKSPACE/libdrm-ps4' && makepkg -sfc --noconfirm --nocheck --skippgpcheck"
-          f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
+          f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
           [ -n "$f" ] || { echo "::error::no libdrm-ps4 package"; exit 1; }
           cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
           pacman -Rdd --noconfirm libdrm || true
@@ -150,7 +152,7 @@ jobs:
               makepkg -sfc --noconfirm --nocheck --skippgpcheck
             "
             local f
-            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
+            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
             [ -n "$f" ] || { echo "::error::no package produced for $pkg"; exit 1; }
             cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
             pacman -Rdd --noconfirm mesa || true
@@ -181,7 +183,7 @@ jobs:
               makepkg -sfc --noconfirm --nocheck --skippgpcheck
             "
             local f
-            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
+            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
             [ -n "$f" ] || { echo "::error::no package produced for $pkg"; exit 1; }
             cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
             pacman -Rdd --noconfirm lib32-mesa lib32-libdrm || true
@@ -198,7 +200,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
-          pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
+          pkg=$(find . -maxdepth 1 -name 'mesa-ps4-*.pkg.tar.zst' -print -quit)
           dep=$(tar --zstd -xOf "$pkg" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
           echo "mesa-ps4 requires libLLVM.so=${dep:-<none>}"
           want="${{ inputs.llvm_version }}"
@@ -207,7 +209,7 @@ jobs:
             exit 1
           fi
           if [ "${{ inputs.lib32 }}" = "true" ]; then
-            l32=$(ls lib32-mesa-ps4-*.pkg.tar.zst | head -n1)
+            l32=$(find . -maxdepth 1 -name 'lib32-mesa-ps4-*.pkg.tar.zst' -print -quit)
             l32dep=$(tar --zstd -xOf "$l32" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
             echo "lib32-mesa-ps4 requires libLLVM.so=${l32dep:-<none> (LLVM-free build)}"
           fi
@@ -240,7 +242,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
 
           # mesa-ps4-26.2.6-2-x86_64.pkg.tar.zst -> mesa-26.2.6-2
-          pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
+          pkg=$(find . -maxdepth 1 -name 'mesa-ps4-*.pkg.tar.zst' -print -quit)
           ver=${pkg#mesa-ps4-}
           ver=${ver%-x86_64.pkg.tar.zst}
           tag="mesa-${ver}"
