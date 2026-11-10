@@ -245,7 +245,10 @@ jobs:
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
 
           # mesa-ps4-26.2.6-2-x86_64.pkg.tar.zst -> mesa-26.2.6-2
+          # find prints "./name", so strip the path first (this produced the
+          # bogus tag "mesa-./mesa-ps4-..." in run 42815063773)
           pkg=$(find . -maxdepth 1 -name 'mesa-ps4-*.pkg.tar.zst' -print -quit)
+          pkg=${pkg##*/}
           ver=${pkg#mesa-ps4-}
           ver=${ver%-x86_64.pkg.tar.zst}
           tag="mesa-${ver}"
