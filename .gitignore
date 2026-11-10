@@ -6,5 +6,5 @@
 /**/src
 *.tar.zst
 
-# Re-include all types of files inside of the repository folder
-!/repo/*
+# packages are published as GitHub Release assets, never committed
+/repo/
