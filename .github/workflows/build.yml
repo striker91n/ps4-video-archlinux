@@ -98,6 +98,12 @@ jobs:
           pacman -Q llvm llvm-libs
           llvm-config --version
 
+          # A rebuild against a different LLVM is a packaging change, not a new
+          # upstream version: bump pkgrel so it can never be mistaken for (or
+          # silently replace) the stock-LLVM build of the same mesa version.
+          sed -i 's/^pkgrel=[0-9]*/pkgrel=2/' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD"
+          grep -m1 '^pkgrel=' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD"
+
       - name: Check disk headroom
         shell: bash
         run: |
