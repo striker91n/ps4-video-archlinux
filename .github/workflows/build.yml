@@ -141,6 +141,9 @@ jobs:
 
           # GitHub Releases do not preserve symlinks, and pacman asks for
           # "<Server>/ps4-video.db" -> ship real files under those names.
+          # repo-add leaves .db as a symlink to .db.tar.zst, so drop it first
+          # (cp refuses when source and destination are the same file).
+          rm -f "$REPO_NAME.db" "$REPO_NAME.files"
           cp -f "$REPO_NAME.db.tar.zst" "$REPO_NAME.db"
           if [ -f "$REPO_NAME.files.tar.zst" ]; then
             cp -f "$REPO_NAME.files.tar.zst" "$REPO_NAME.files"
