@@ -106,7 +106,12 @@ jobs:
           # A rebuild against a different LLVM is a packaging change, not a new
           # upstream version: bump pkgrel so it can never be mistaken for (or
           # silently replace) the stock-LLVM build of the same mesa version.
-          sed -i 's/^pkgrel=[0-9]*/pkgrel=2/' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD"
+          # only bump pkgrel if the PKGBUILD still says 1: an authored pkgrel
+          # (bumped for a content change) must be preserved
+          cur=$(sed -n 's/^pkgrel=\([0-9]*\).*/\1/p' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD")
+          if [ "$cur" = "1" ]; then
+            sed -i 's/^pkgrel=[0-9]*/pkgrel=2/' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD"
+          fi
           grep -m1 '^pkgrel=' "$GITHUB_WORKSPACE/mesa-ps4/PKGBUILD"
 
       - name: Build libdrm-ps4 (base for both 32- and 64-bit)

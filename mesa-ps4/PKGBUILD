@@ -8,7 +8,7 @@
 pkgname=mesa-ps4
 pkgdesc="an open-source implementation of the OpenGL specification, git version"
 pkgver=26.2.6
-pkgrel=1
+pkgrel=3
 arch=('x86_64')
 
 _gallium_drivers="radeonsi"   # radeonsi only (slim: no software/zink fallback)
@@ -92,10 +92,12 @@ source=(
     "mesa-${pkgver}.tar.xz::https://archive.mesa3d.org/mesa-${pkgver}.tar.xz"
     'LICENSE'
     'ps4-mesa.patch'
+    'radv-ps4-nohiz.patch'
 )
 sha256sums=('b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92'
             '7fdc119cf53c8ca65396ea73f6d10af641ba41ea1dd2bd44a824726e01c8b3f2'
             'a27babf973d417b211244ce64beaa7fa3d6e07a6ebd2241c64adb2b18e1988fc'
+            '46930f1a4accb2499d06fa420ca68b278b5d650db9721eaa7b06decfb09def0b'
             '39278fbbf5fb4f646ce651690877f89d1c5811a3d4acb27700c1cb3cdb78fd3b'
             '3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b'
             '5267fca4496028628a95160fc423a33e8b2e6af8a5302579e322e4b520293cae'
@@ -103,6 +105,7 @@ sha256sums=('b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92'
 b2sums=('48b782cf78ab81edefd049f32074c9ccc2891402cdd0a6298037d0ee8c5f4c1e6cf9386fc196c201beea89a3c4cbfee53aa84c3bd0cc91865b6fce25494cd630'
         'cc60238726b35133b5b729fb4ed1e76e04136588533615d84b4a54656d5b41727d5e7ff06ef4de3eb102eed6669d6c5c5cb8ac9fbdf6fc25aa477877c5c3ba87'
         '73938fd91d8375e47881092a41c31d6f2b518e89febd861d9b43ca2628cbd9f66ebafde36c3624df6b75dd5ccc2f40658331eac182224f582b4d8f137d1c9901'
+        'c624bcbcdb3cd5fa86c257f35989a51462b7e1c7f1fefdec14d89a5ac42cef5bf3dd48f8ad8835b8204a743e07351a8bcf641f0f1dc4a63e726f75fcb9439312'
         'fff0dec06b21e391783cc136790238acb783780eaedcf14875a350e7ceb46fdc100c8b9e3f09fb7f4c2196c25d4c6b61e574c0dad762d94533b628faab68cf5c'
         '4cede03c08758ccd6bf53a0d0057d7542dfdd0c93d342e89f3b90460be85518a9fd24958d8b1da2b5a09b5ddbee8a4263982194158e171c2bba3e394d88d6dac'
         '77c4b166f1200e1ee2ab94a5014acd334c1fe4b7d72851d73768d491c56c6779a0882a304c1f30c88732a6168351f0f786b10516ae537cff993892a749175848'

@@ -1,0 +1,32 @@
+--- a/src/amd/vulkan/radv_physical_device.c
++++ b/src/amd/vulkan/radv_physical_device.c
+@@ -9,6 +9,7 @@
+  */
+ 
+ #include <fcntl.h>
++#include <stdlib.h>
+ #include "util/os_file.h"
+ #include "util/os_misc.h"
+ #include "vulkan/vulkan_core.h"
+@@ -2699,6 +2700,21 @@
+ 
+    pdev->use_hiz = !(instance->debug_flags & RADV_DEBUG_NO_HIZ);
+ 
++   /* PlayStation 4: HiZ/HTILE hangs the GFX ring on Liverpool (0x9920,
++    * 0x9922, 0x9923) and Gladius (0x9924). The kernel logs
++    * "ring gfx timeout, but soft recovered" and the app sees
++    * "The CS has been cancelled because the context is lost", which makes
++    * anything depth-heavy unusable (Roblox, DXVK). Disable HiZ for these
++    * parts by default. RADV_PS4_HIZ=1 re-enables it for experiments.
++    */
++   if (pdev->use_hiz && (pdev->info.pci_id == 0x9920 || pdev->info.pci_id == 0x9922 ||
++                         pdev->info.pci_id == 0x9923 || pdev->info.pci_id == 0x9924)) {
++      const char *force_hiz = getenv("RADV_PS4_HIZ");
++
++      if (!force_hiz || force_hiz[0] == '\0' || force_hiz[0] == '0')
++         pdev->use_hiz = false;
++   }
++
+    if (pdev->info.gfx_level == GFX12) {
+       const char *gfx12_hiz_wa_str = instance->drirc.performance.gfx12_hiz_wa;
+ 
