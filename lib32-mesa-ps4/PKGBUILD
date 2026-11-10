@@ -126,15 +126,12 @@ case $MESA_WHICH_LLVM in
         depends+=('lib32-llvm-libs-git')
         ;;
     4)
-        # extra/llvm
+        # No LLVM: this package is built with -D llvm=disabled -D amd-use-llvm=false
+        # (see build()), so it neither links nor needs any lib32 LLVM. That is what
+        # lets it install on a console pinned to an older lib32 llvm-libs.
         makedepends+=(
-            'lib32-llvm'
-            'lib32-spirv-llvm-translator'
             'lib32-spirv-tools')
         depends+=(
-            'lib32-clang'
-            'lib32-llvm-libs'
-            'lib32-spirv-llvm-translator'
             'lib32-spirv-tools')
         ;;
     *)
