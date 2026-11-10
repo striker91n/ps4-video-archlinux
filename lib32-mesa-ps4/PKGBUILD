@@ -12,11 +12,11 @@
 
 pkgname=lib32-mesa-ps4
 pkgdesc="an open-source implementation of the OpenGL specification, git version"
-pkgver=26.2
+pkgver=26.2.6
 pkgrel=1
 arch=('x86_64')
 
-_gallium_drivers="radeonsi,llvmpipe,softpipe,zink"   # radeonsi main + minimal software fallback
+_gallium_drivers="radeonsi"   # radeonsi only: llvmpipe/softpipe need LLVM (see build())
 _vulkan_drivers="amd"                                # Only RADV
 
 makedepends=(
@@ -78,18 +78,15 @@ conflicts=(
 )
 url="https://www.mesa3d.org"
 license=('custom')
-source=('mesa::git+https://gitlab.freedesktop.org/mesa/mesa.git'
+source=("mesa-${pkgver}.tar.xz::https://archive.mesa3d.org/mesa-${pkgver}.tar.xz"
         'LICENSE'
-        'llvm32.native'
-        'ps4-lib32-mesa.patch')
-sha256sums=('SKIP'
+        'ps4-mesa.patch')
+sha256sums=('b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92'
             '7fdc119cf53c8ca65396ea73f6d10af641ba41ea1dd2bd44a824726e01c8b3f2'
-            '3ea259740141b862e152e07c58f05cad539680541dc181a7233be0c93414e6fb'
-            'f7a78f8b894dc06bb6d210f2d0f9b04cdb51e285e40c2832a6813d4d88f465a9')
-b2sums=('SKIP'
+            'a27babf973d417b211244ce64beaa7fa3d6e07a6ebd2241c64adb2b18e1988fc')
+b2sums=('48b782cf78ab81edefd049f32074c9ccc2891402cdd0a6298037d0ee8c5f4c1e6cf9386fc196c201beea89a3c4cbfee53aa84c3bd0cc91865b6fce25494cd630'
         'cc60238726b35133b5b729fb4ed1e76e04136588533615d84b4a54656d5b41727d5e7ff06ef4de3eb102eed6669d6c5c5cb8ac9fbdf6fc25aa477877c5c3ba87'
-        'f84a2ec7aa5cd0e3efcfee69897e3da5c6c7031a07b7c93b43f1a709cc0ae0fd312c56c659e7cb7f2e276cbe49be6e586f117320404d2978b09ae0969d919eaf'
-        '139782f8d6b46e189953aad96a4f5630d93ba9c28d4b1031878b3b753ebf561ea1abedac9d998a05a96b29910fa23a6d5a255893c5b02293d997a6d974496552')
+        '73938fd91d8375e47881092a41c31d6f2b518e89febd861d9b43ca2628cbd9f66ebafde36c3624df6b75dd5ccc2f40658331eac182224f582b4d8f137d1c9901')
 
 # NINJAFLAGS is an env var used to pass commandline options to ninja
 # NOTE: It's your responbility to validate the value of $NINJAFLAGS. If unsure, don't set it.
@@ -144,34 +141,19 @@ case $MESA_WHICH_LLVM in
 esac
 
 
-pkgver() {
-    cd mesa
-    local _ver
-    _ver=$(<VERSION)
-
-    local _patchver
-    local _patchfile
-    for _patchfile in "${source[@]}"; do
-        _patchfile="${_patchfile%%::*}"
-        _patchfile="${_patchfile##*/}"
-        [[ $_patchfile = *.patch ]] || continue
-        _patchver="${_patchver}$(md5sum ${srcdir}/${_patchfile} | cut -c1-32)"
-    done
-    _patchver="$(echo -n $_patchver | md5sum | cut -c1-7)"
-
-    echo ${_ver/-/_}.$(git rev-list --count HEAD).$(git rev-parse --short HEAD).${_patchver}
-}
-
 prepare() {
     # although removing _build folder in build() function feels more natural,
     # that interferes with the spirit of makepkg --noextract
     if [  -d _build ]; then
         rm -rf _build
     fi
-    
-    cd mesa
-    git checkout mesa-26.0.8
-    cd ..
+
+    # Build from the release tarball (same reason as mesa-ps4: makepkg clones a
+    # full bare mirror for a git+ source and gitlab.freedesktop.org resets it).
+    if [ -d "mesa-${pkgver}" ]; then
+        rm -rf mesa
+        mv "mesa-${pkgver}" mesa
+    fi
 
     local _patchfile
     for _patchfile in "${source[@]}"; do
@@ -192,7 +174,6 @@ build () {
     export PKG_CONFIG=/usr/bin/i686-pc-linux-gnu-pkg-config
 
     meson setup mesa _build \
-        --native-file llvm32.native \
         -D b_ndebug=true \
         -D buildtype=release \
         --wrap-mode=nofallback \
@@ -212,7 +193,8 @@ build () {
         -D glvnd=enabled \
         -D glx=dri \
         -D libunwind=enabled \
-        -D llvm=enabled \
+        -D llvm=disabled \
+        -D amd-use-llvm=false \
         -D lmsensors=enabled \
         -D valgrind=disabled \
         -D tools=[] \

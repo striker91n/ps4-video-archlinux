@@ -12,7 +12,7 @@ on:
         type: boolean
         default: true
       llvm_version:
-        description: 'Build against this llvm/llvm-libs from the Arch archive (e.g. 22.1.6). Empty = current Arch (23.1.x).'
+        description: 'Build the 64-bit mesa against this llvm/llvm-libs from the Arch archive (e.g. 22.1.6). Empty = current Arch.'
         required: false
         default: ''
 
@@ -64,8 +64,6 @@ jobs:
           pacman -S --noconfirm --needed \
             base-devel sudo fakeroot \
             github-cli zstd
-
-          # the package cache is dead weight on a 14 GB runner
           pacman -Scc --noconfirm
 
       - name: Create builder user
@@ -76,10 +74,43 @@ jobs:
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
-      # The console may be held on an older llvm-libs than current Arch ships.
-      # mesa-ps4 hard-depends on the LLVM it was linked against, so pin the
-      # toolchain instead of forcing an llvm upgrade on the console.
-      - name: Pin LLVM to the console's version
+      # ------------------------------------------------------------ 32-bit pass
+      # Runs BEFORE the LLVM pin on purpose: installing lib32-llvm can pull the
+      # 64-bit llvm back up and undo the pin. It is also LLVM-free by design
+      # (mesa configured with -D llvm=disabled -D amd-use-llvm=false), so the
+      # resulting package has no libLLVM dependency and installs on a console
+      # holding whatever lib32 llvm-libs it already has.
+      - name: Build 32-bit packages
+        if: inputs.lib32
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf "$GITHUB_WORKSPACE/$REPO_DIR"
+          mkdir -p "$GITHUB_WORKSPACE/$REPO_DIR"
+
+          build32() {
+            local pkg="$1"
+            echo "=== BUILDING $pkg (32-bit) ==="
+            cd "$GITHUB_WORKSPACE/$pkg"
+            sudo -u builder bash -c "
+              cd '$GITHUB_WORKSPACE/$pkg' &&
+              makepkg -sfc --noconfirm --skippgpcheck
+            "
+            local f
+            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
+            [ -n "$f" ] || { echo "::error::no package produced for $pkg"; exit 1; }
+            cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
+            pacman -Rdd --noconfirm lib32-mesa || true
+            pacman -U --noconfirm "$f"
+            df -h /
+          }
+
+          build32 lib32-libdrm-ps4
+          build32 lib32-mesa-ps4
+
+      # ------------------------------------------------------------- LLVM pin
+      - name: Pin LLVM to the console's version (64-bit)
         if: inputs.llvm_version != ''
         shell: bash
         run: |
@@ -91,8 +122,6 @@ jobs:
             curl -fL --retry 3 --max-time 600 -o "$f" \
               "https://archive.archlinux.org/packages/l/${p}/${f}"
           done
-          # -dd: the rest of the container is still built against 23.1, and we
-          # only need llvm-config/mesa to see 22.1 here.
           pacman -Udd --noconfirm \
             "./llvm-libs-${V}-1-x86_64.pkg.tar.zst" "./llvm-${V}-1-x86_64.pkg.tar.zst"
           pacman -Q llvm llvm-libs
@@ -111,58 +140,60 @@ jobs:
           df -h /
           avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
           echo "free: ${avail}G"
-          if [ "$avail" -lt 12 ]; then
-            echo "::error::Only ${avail}G free. A mesa + LLVM build needs ~10-12G."
-            echo "Use the chroot workflow (.github/workflows/buildtarball.yml), which"
-            echo "runs on the runner rootfs and can free the preinstalled toolchains."
+          if [ "$avail" -lt 10 ]; then
+            echo "::error::Only ${avail}G free. A mesa + LLVM build needs ~10G."
             exit 1
           fi
 
-      # ---------------------------------------------------------------- build
-      - name: Build packages
+      # ------------------------------------------------------------ 64-bit pass
+      - name: Build 64-bit packages
         shell: bash
         run: |
           set -euxo pipefail
 
-          # start from a clean repo dir: committed binaries from earlier
-          # builds must never be re-published
-          rm -rf "$GITHUB_WORKSPACE/$REPO_DIR"
           mkdir -p "$GITHUB_WORKSPACE/$REPO_DIR"
 
-          build_and_install() {
+          build64() {
             local pkg="$1"
             echo "=== BUILDING $pkg ==="
-
             cd "$GITHUB_WORKSPACE/$pkg"
-
             sudo -u builder bash -c "
               cd '$GITHUB_WORKSPACE/$pkg' &&
               makepkg -sfc --noconfirm --skippgpcheck
             "
-
-            local pkg_file
-            pkg_file=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
-            [ -n "$pkg_file" ] || { echo "::error::no package produced for $pkg"; exit 1; }
-
-            cp "$pkg_file" "$GITHUB_WORKSPACE/$REPO_DIR/"
-
-            pacman -Rdd --noconfirm mesa       || true
-            pacman -Rdd --noconfirm lib32-mesa || true
-            pacman -U --noconfirm "$pkg_file"
-
+            local f
+            f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)
+            [ -n "$f" ] || { echo "::error::no package produced for $pkg"; exit 1; }
+            cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
+            pacman -Rdd --noconfirm mesa || true
+            pacman -U --noconfirm "$f"
             df -h /
           }
 
-          build_and_install libdrm-ps4
-          build_and_install mesa-ps4
-          build_and_install xf86-video-amdgpu-ps4
+          build64 libdrm-ps4
+          build64 mesa-ps4
+          build64 xf86-video-amdgpu-ps4
 
+      # ----------------------------------------------------------- verify + db
+      - name: Verify LLVM linkage of the 64-bit package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/$REPO_DIR"
+          pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
+          dep=$(tar --zstd -xOf "$pkg" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
+          echo "mesa-ps4 requires libLLVM.so=${dep:-<none>}"
+          want="${{ inputs.llvm_version }}"
+          if [ -n "$want" ] && [ "${dep}" != "${want%.*}" ]; then
+            echo "::error::built against libLLVM.so=${dep} but pin asked for ${want%.*}"
+            exit 1
+          fi
           if [ "${{ inputs.lib32 }}" = "true" ]; then
-            build_and_install lib32-libdrm-ps4
-            build_and_install lib32-mesa-ps4
+            l32=$(ls lib32-mesa-ps4-*.pkg.tar.zst | head -n1)
+            l32dep=$(tar --zstd -xOf "$l32" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
+            echo "lib32-mesa-ps4 requires libLLVM.so=${l32dep:-<none> (LLVM-free build)}"
           fi
 
-      # ----------------------------------------------------------- repo + tag
       - name: Create pacman repo db
         shell: bash
         run: |
@@ -183,20 +214,6 @@ jobs:
 
           ls -la
 
-      - name: Verify LLVM linkage of the built package
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE/$REPO_DIR"
-          pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
-          dep=$(tar --zstd -xOf "$pkg" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
-          echo "mesa-ps4 requires libLLVM.so=${dep:-<none>}"
-          want="${{ inputs.llvm_version }}"
-          if [ -n "$want" ] && [ "${dep}" != "${want%.*}" ]; then
-            echo "::error::built against libLLVM.so=${dep} but pin asked for ${want%.*}"
-            exit 1
-          fi
-
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -204,14 +221,12 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
 
-          # mesa-ps4-26.2.6-1-x86_64.pkg.tar.zst -> mesa-26.2.6-1
+          # mesa-ps4-26.2.6-2-x86_64.pkg.tar.zst -> mesa-26.2.6-2
           pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
           ver=${pkg#mesa-ps4-}
           ver=${ver%-x86_64.pkg.tar.zst}
           tag="mesa-${ver}"
 
-          # make the LLVM ABI part of the tag when pinned, so an llvm22 build can
-          # never be confused with the stock llvm23 one
           if [ -n "${{ inputs.llvm_version }}" ]; then
             tag="${tag}-llvm${{ inputs.llvm_version }}"
           fi
@@ -236,9 +251,13 @@ jobs:
 
           LLVM_PIN="${{ inputs.llvm_version }}"
           if [ -n "$LLVM_PIN" ]; then
-            LLVM_NOTE="Built against llvm/llvm-libs **${LLVM_PIN}** (console pin) — requires libLLVM.so=${LLVM_PIN%.*}."
+            LLVM_NOTE="64-bit mesa built against llvm/llvm-libs **${LLVM_PIN}** — requires libLLVM.so=${LLVM_PIN%.*}."
           else
-            LLVM_NOTE="Built against the current Arch llvm (libLLVM.so=23.1)."
+            LLVM_NOTE="64-bit mesa built against the current Arch llvm."
+          fi
+          if [ "${{ inputs.lib32 }}" = "true" ]; then
+            LLVM_NOTE="$LLVM_NOTE
+          32-bit mesa is built with **no LLVM at all** (\`-D llvm=disabled -D amd-use-llvm=false\`, radeonsi on ACO), so it has no libLLVM dependency and works with any lib32 llvm-libs."
           fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
