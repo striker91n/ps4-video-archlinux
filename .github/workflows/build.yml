@@ -11,6 +11,10 @@ on:
         description: 'Also refresh the rolling "latest" tag'
         type: boolean
         default: true
+      llvm_version:
+        description: 'Build against this llvm/llvm-libs from the Arch archive (e.g. 22.1.6). Empty = current Arch (23.1.x).'
+        required: false
+        default: ''
 
 concurrency:
   group: ps4-mesa-release
@@ -71,6 +75,28 @@ jobs:
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      # The console may be held on an older llvm-libs than current Arch ships.
+      # mesa-ps4 hard-depends on the LLVM it was linked against, so pin the
+      # toolchain instead of forcing an llvm upgrade on the console.
+      - name: Pin LLVM to the console's version
+        if: inputs.llvm_version != ''
+        shell: bash
+        run: |
+          set -euxo pipefail
+          V="${{ inputs.llvm_version }}"
+          mkdir -p /tmp/llvmpin && cd /tmp/llvmpin
+          for p in llvm llvm-libs; do
+            f="${p}-${V}-1-x86_64.pkg.tar.zst"
+            curl -fL --retry 3 --max-time 600 -o "$f" \
+              "https://archive.archlinux.org/packages/l/${p}/${f}"
+          done
+          # -dd: the rest of the container is still built against 23.1, and we
+          # only need llvm-config/mesa to see 22.1 here.
+          pacman -Udd --noconfirm \
+            "./llvm-libs-${V}-1-x86_64.pkg.tar.zst" "./llvm-${V}-1-x86_64.pkg.tar.zst"
+          pacman -Q llvm llvm-libs
+          llvm-config --version
 
       - name: Check disk headroom
         shell: bash
@@ -151,6 +177,20 @@ jobs:
 
           ls -la
 
+      - name: Verify LLVM linkage of the built package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/$REPO_DIR"
+          pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
+          dep=$(tar --zstd -xOf "$pkg" .PKGINFO | sed -n 's/^depend = libLLVM\.so=\(.*\)-64$/\1/p')
+          echo "mesa-ps4 requires libLLVM.so=${dep:-<none>}"
+          want="${{ inputs.llvm_version }}"
+          if [ -n "$want" ] && [ "${dep}" != "${want%.*}" ]; then
+            echo "::error::built against libLLVM.so=${dep} but pin asked for ${want%.*}"
+            exit 1
+          fi
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -158,12 +198,20 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/$REPO_DIR"
 
-          # mesa-ps4-26.2.5-1-x86_64.pkg.tar.zst -> mesa-26.2.5-1
+          # mesa-ps4-26.2.6-1-x86_64.pkg.tar.zst -> mesa-26.2.6-1
           pkg=$(ls mesa-ps4-*.pkg.tar.zst | head -n1)
           ver=${pkg#mesa-ps4-}
           ver=${ver%-x86_64.pkg.tar.zst}
-          echo "TAG=mesa-${ver}" | tee -a "$GITHUB_ENV"
-          echo "tag=mesa-${ver}" >> "$GITHUB_OUTPUT"
+          tag="mesa-${ver}"
+
+          # make the LLVM ABI part of the tag when pinned, so an llvm22 build can
+          # never be confused with the stock llvm23 one
+          if [ -n "${{ inputs.llvm_version }}" ]; then
+            tag="${tag}-llvm${{ inputs.llvm_version }}"
+          fi
+
+          echo "TAG=${tag}" | tee -a "$GITHUB_ENV"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------- publish
       - name: Publish GitHub Release
@@ -180,12 +228,21 @@ jobs:
             ASSETS+=("./$REPO_NAME.files" "./$REPO_NAME.files.tar.zst")
           fi
 
+          LLVM_PIN="${{ inputs.llvm_version }}"
+          if [ -n "$LLVM_PIN" ]; then
+            LLVM_NOTE="Built against llvm/llvm-libs **${LLVM_PIN}** (console pin) — requires libLLVM.so=${LLVM_PIN%.*}."
+          else
+            LLVM_NOTE="Built against the current Arch llvm (libLLVM.so=23.1)."
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             gh release create "$TAG" "${ASSETS[@]}" \
               --title "$TAG" \
-              --notes "Built from ${GITHUB_SHA::12} on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+              --notes "Built from ${GITHUB_SHA::12} on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+
+          $LLVM_NOTE"
           fi
 
           if [ "${{ inputs.rolling }}" = "true" ]; then
@@ -193,6 +250,8 @@ jobs:
             gh release create latest "${ASSETS[@]}" \
               --title "PS4 Mesa (latest)" \
               --notes "Rolling alias for $TAG.
+
+          $LLVM_NOTE
 
           \`\`\`
           [ps4-video]
