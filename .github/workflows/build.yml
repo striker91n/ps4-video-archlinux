@@ -186,7 +186,10 @@ jobs:
             f=$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
             [ -n "$f" ] || { echo "::error::no package produced for $pkg"; exit 1; }
             cp "$f" "$GITHUB_WORKSPACE/$REPO_DIR/"
-            pacman -Rdd --noconfirm lib32-mesa lib32-libdrm || true
+            # one target per call: pacman aborts the whole removal if any named
+            # target is absent, which would leave the conflicting package behind
+            pacman -Rdd --noconfirm lib32-mesa || true
+            pacman -Rdd --noconfirm lib32-libdrm || true
             pacman -U --noconfirm "$f"
             df -h /
           }
